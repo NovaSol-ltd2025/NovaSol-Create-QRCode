@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ลงเวลาเข้า-ออกงาน</title>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Chakra Petch', sans-serif; text-align:center; padding:16px; background:#f2f2f2; }
+    .card { background:#fff; border-radius:14px; padding:24px; max-width:420px; margin:0 auto; box-shadow:0 2px 10px rgba(0,0,0,.12); }
+    h2 { margin-top:0; }
+    .locname { color:#1565c0; font-size:20px; font-weight:bold; margin-bottom:4px; }
+    input { font-family: 'Chakra Petch', sans-serif; width:100%; padding:14px; margin:8px 0; border:1px solid #ccc; border-radius:8px; font-size:20px; box-sizing:border-box; }
+    .btn-row { display:flex; gap:10px; margin-top:15px; }
+    button { font-family: 'Chakra Petch', sans-serif; flex:1; padding:20px; font-size:22px; font-weight:bold; cursor:pointer; border:none; border-radius:10px; color:#fff; }
+    #btnIn { background:#2e7d32; }
+    #btnOut { background:#c62828; }
+    button:disabled { background:#aaa; }
+    #status { margin-top:20px; font-size:18px; font-weight:bold; white-space:pre-line; }
+    #clock { color:#666; font-size:16px; margin-bottom:6px; }
+    .warn { color:#c62828; font-size:14px; margin-top:10px; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="locname" id="displayLocName">📍 กำลังโหลด...</div>
+  <div id="clock">--:--:--</div>
+  <h2>ลงเวลาทำงาน</h2>
+
+  <div id="mainContent" style="display:none;">
+    <input type="text" id="empId" placeholder="รหัสพนักงาน" inputmode="numeric">
+    <input type="text" id="empName" placeholder="ชื่อ-สกุล">
+    <div class="btn-row">
+      <button id="btnIn" onclick="checkAction('IN')">เข้างาน</button>
+      <button id="btnOut" onclick="checkAction('OUT')">ออกงาน</button>
+    </div>
+  </div>
+  
+  <p class="warn" id="errorMsg" style="display:none;"></p>
+
+  <div id="status">กรอกข้อมูลแล้วกดปุ่มเพื่อลงเวลา</div>
+</div>
+
+<script>
+  // ⚠️ เอา Web App URL จาก Google Apps Script (ที่ลงท้ายด้วย /exec) มาใส่ตรงนี้
+  const API_URL = 'https://script.google.com/macros/s/AKfycby3UQfObap71ov7R1Kwk4U9q7XYLGQVlX09kwWblF8GAQylvQsnd5SCWdcHA500BcHzVg/exec';
+
+  // ดึงค่าพิกัดจาก URL Params แบบฝั่ง Client 
+  const urlParams = new URLSearchParams(window.location.search);
+  const officeLat = urlParams.get('lat');
+  const officeLng = urlParams.get('lng');
+  const locName = urlParams.get('loc') || 'สถานที่ทำงาน';
+  const radius = urlParams.get('r') || 100;
+  
+  let currentType = null;
+
+  window.onload = function () {
+    document.getElementById('displayLocName').innerText = '📍 ' + locName;
+    
+    if (!officeLat || !officeLng) {
+      document.getElementById('errorMsg').innerText = '⚠️ QR Code นี้ไม่มีข้อมูลพิกัด กรุณาติดต่อฝ่ายบุคคล';
+      document.getElementById('errorMsg').style.display = 'block';
+      document.getElementById('status').style.display = 'none';
+    } else {
+      document.getElementById('mainContent').style.display = 'block';
+      
+      document.getElementById('empId').value = localStorage.getItem('empId') || '';
+      document.getElementById('empName').value = localStorage.getItem('empName') || '';
+    }
+
+    tickClock();
+    setInterval(tickClock, 1000);
+  };
+
+  async function tickClock() {
+    try {
+      let response = await fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'getServerTime' }),
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+      });
+      let result = await response.json();
+      if (result.status === 'success') {
+        document.getElementById('clock').innerText = result.time;
+      }
+    } catch(e) {
+      // กรณีเน็ตหลุด จะใช้เวลาเครื่องแทนชั่วคราว
+      let d = new Date();
+      document.getElementById('clock').innerText = d.toLocaleDateString('th-TH') + ' ' + d.toLocaleTimeString('th-TH');
+    }
+  }
+
+  function checkAction(type) {
+    var empId = document.getElementById('empId').value.trim();
+    var empName = document.getElementById('empName').value.trim();
+
+    if (!empId || !empName) {
+      document.getElementById('status').innerText = 'กรุณากรอกรหัสพนักงานและชื่อ-สกุลให้ครบ';
+      return;
+    }
+    localStorage.setItem('empId', empId);
+    localStorage.setItem('empName', empName);
+
+    currentType = type;
+    setButtonsDisabled(true);
+    document.getElementById('status').innerText = 'กำลังตรวจสอบตำแหน่ง GPS...';
+
+    if (!navigator.geolocation) {
+      document.getElementById('status').innerText = 'อุปกรณ์นี้ไม่รองรับ GPS';
+      setButtonsDisabled(false);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(sendData, showError, {
+      enableHighAccuracy: true, timeout: 15000, maximumAge: 0
+    });
+  }
+
+  async function sendData(position) {
+    var empId = document.getElementById('empId').value.trim();
+    var empName = document.getElementById('empName').value.trim();
+
+    document.getElementById('status').innerText = 'กำลังส่งข้อมูลไปที่เซิร์ฟเวอร์...';
+
+    const payload = {
+      action: 'recordAttendance',
+      empId: empId,
+      empName: empName,
+      type: currentType,
+      userLat: position.coords.latitude,
+      userLng: position.coords.longitude,
+      officeLat: officeLat,
+      officeLng: officeLng,
+      locName: locName,
+      radius: radius
+    };
+
+    try {
+      let response = await fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+      });
+      
+      let result = await response.json();
+      
+      if (result.status === 'success') {
+        document.getElementById('status').innerText = result.message;
+      } else {
+        document.getElementById('status').innerText = '❌ ' + result.message;
+      }
+    } catch (err) {
+      document.getElementById('status').innerText = '❌ เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่';
+    } finally {
+      setButtonsDisabled(false);
+    }
+  }
+
+  function showError(error) {
+    var msg = 'ไม่สามารถดึงตำแหน่งได้ กรุณาเปิด GPS';
+    if (error.code === 1) msg = 'กรุณาอนุญาตการเข้าถึงตำแหน่ง (Location) ในเบราว์เซอร์ก่อน';
+    document.getElementById('status').innerText = msg;
+    setButtonsDisabled(false);
+  }
+
+  function setButtonsDisabled(disabled) {
+    document.getElementById('btnIn') && (document.getElementById('btnIn').disabled = disabled);
+    document.getElementById('btnOut') && (document.getElementById('btnOut').disabled = disabled);
+  }
+</script>
+</body>
+</html>
