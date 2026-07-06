@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>สร้าง QR Code ประจำสถานที่</title>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Chakra Petch', sans-serif; padding:24px; max-width:480px; margin:0 auto; background: #f9f9f9;}
+    h2 { text-align: center; color: #1565c0; }
+    label { font-weight: 600; margin-top: 10px; display: block; }
+    input { font-family: 'Chakra Petch', sans-serif; width:100%; padding:10px; margin:6px 0; border:1px solid #ccc; border-radius:6px; box-sizing:border-box; font-size: 16px;}
+    button { font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: bold; padding:12px 20px; margin-top:8px; cursor:pointer; border:none; border-radius:6px; background:#1565c0; color:#fff; width: 100%;}
+    button:hover { background: #0d47a1; }
+    .btn-convert { background: #00796b; }
+    .btn-convert:hover { background: #004d40; }
+    #qrResult { text-align:center; margin-top:24px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: none;}
+    #qrResult img { max-width:100%; margin: 10px 0; }
+    .hint { font-size:13px; color:#666; margin-bottom: 15px;}
+    .card { background:#fff; border-radius:14px; padding:24px; box-shadow:0 2px 10px rgba(0,0,0,.08); }
+  </style>
+</head>
+<body>
+  
+  <div class="card">
+    <h2>ตั้งค่าสถานที่ (สร้าง QR Code)</h2>
+
+    <label>ชื่อสถานที่ (เช่น สาขาสีลม)</label>
+    <input id="locName" placeholder="สถานที่ทำงาน">
+
+    <label>วางลิงก์ Google Maps หรือพิกัด "lat, lng"</label>
+    <input id="mapsInput" placeholder="https://maps.app.goo.gl/... หรือ 13.62, 100.57">
+    <button class="btn-convert" onclick="convert()">📍 แปลงเป็นพิกัด</button>
+    <p class="hint">ถ้าแปลงลิงก์ไม่ได้ ให้เปิดลิงก์ใน Google Maps เอง แล้วคัดลอกตัวเลขพิกัดจาก URL มาใส่ในช่อง "ลองจิจูด/ละติจูด" ด้านล่างแทน</p>
+
+    <label>ละติจูด (Lat)</label>
+    <input id="lat" placeholder="เช่น 13.620153">
+
+    <label>ลองจิจูด (Lng)</label>
+    <input id="lng" placeholder="เช่น 100.579734">
+
+    <label>รัศมีที่อนุญาต (เมตร)</label>
+    <input id="radius" value="100" type="number">
+
+    <button onclick="generate()">สร้าง QR Code</button>
+  </div>
+
+  <div id="qrResult"></div>
+
+  <script>
+    // ⚠️ เอา Web App URL จาก Google Apps Script (ที่ลงท้ายด้วย /exec) มาใส่ตรงนี้
+    const API_URL = 'https://script.google.com/macros/s/AKfycby3UQfObap71ov7R1Kwk4U9q7XYLGQVlX09kwWblF8GAQylvQsnd5SCWdcHA500BcHzVg/exec';
+    
+    // ตั้งค่า URL ของ GitHub Pages ของคุณเพื่อเป็นฐานของ QR Code
+    // ถ้าเพิ่งสร้าง repo ชื่อ my-attendance จะเป็น https://[username].github.io/my-attendance
+    const GITHUB_PAGES_BASE_URL = window.location.href.split('index.html')[0].replace(/\/$/, ""); 
+
+    async function convert() {
+      var val = document.getElementById('mapsInput').value;
+      if (!val) return;
+      var btn = document.querySelector('.btn-convert');
+      btn.innerText = "กำลังค้นหา...";
+      
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'resolveMapsLink', url: val }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' } // ป้องกัน preflight issue
+        });
+        
+        let result = await response.json();
+        
+        if (result.status === 'success') {
+          document.getElementById('lat').value = result.data.lat;
+          document.getElementById('lng').value = result.data.lng;
+        } else {
+          alert('เกิดข้อผิดพลาด: ' + result.message);
+        }
+      } catch (err) {
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+      } finally {
+        btn.innerText = "📍 แปลงเป็นพิกัด";
+      }
+    }
+
+    function generate() {
+      var locName = document.getElementById('locName').value || 'สถานที่ทำงาน';
+      var lat = document.getElementById('lat').value;
+      var lng = document.getElementById('lng').value;
+      var radius = document.getElementById('radius').value || 100;
+
+      if (!lat || !lng) { alert('กรุณากรอกพิกัดละติจูดและลองจิจูดให้ครบถ้วน'); return; }
+
+      // สร้าง URL สำหรับไปที่หน้า attendance.html พร้อมแนบ parameter
+      var targetUrl = GITHUB_PAGES_BASE_URL + '/attendance.html'
+        + '?lat=' + encodeURIComponent(lat)
+        + '&lng=' + encodeURIComponent(lng)
+        + '&loc=' + encodeURIComponent(locName)
+        + '&r=' + encodeURIComponent(radius);
+
+      var qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(targetUrl);
+
+      document.getElementById('qrResult').style.display = 'block';
+      document.getElementById('qrResult').innerHTML =
+        '<h3>' + locName + '</h3>' +
+        '<p style="margin: 0; color: #555;">สแกนเพื่อลงเวลาเข้า-ออกงาน</p>' +
+        '<img src="' + qrImg + '"><br>' +
+        '<p style="word-break:break-all;font-size:12px;color:#888;">' + targetUrl + '</p>' +
+        '<button style="background:#424242;" onclick="window.print()">🖨️ พิมพ์ QR Code</button>';
+    }
+  </script>
+</body>
+</html>
